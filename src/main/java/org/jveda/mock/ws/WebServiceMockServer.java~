@@ -1,0 +1,128 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.mycompany.demoapps.webservicemock;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.IOException;
+
+
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.io.IOUtils;
+
+import org.eclipse.jetty.server.Handler;
+import org.eclipse.jetty.server.HttpConnection;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.server.handler.ContextHandler;
+
+import org.eclipse.jetty.util.log.Log;
+
+/**
+ *
+ * @author dchakr
+ */
+public class WebServiceMockServer {
+
+  private static String soapResDir;
+  private static boolean isDynamicReloadingEnabled;
+  private static Map<String, String> soapResMap = new HashMap<String, String>();
+
+  public static void main(String args[]) throws Exception {
+
+    BufferedReader br = 
+		new BufferedReader(new InputStreamReader(WebServiceMockServer.class.getResourceAsStream("/graffiti")));
+    
+    String line = "";
+    while ((line = br.readLine()) != null) {
+      System.out.println(line);
+    }
+
+    br.close();
+
+    //"6789", "/services/HelloWorld", "/home/dchakr/testDir"
+    soapResDir = args[2];
+    isDynamicReloadingEnabled = "true".equals(args[3]) ? true : false;
+
+    WebServiceMockServer webServiceMock = new WebServiceMockServer();
+    Server server = webServiceMock.createServer(args[0], args[1]);
+    Log.info("Creating server with context " + args[1] + " on port " + args[0] + ".");
+    webServiceMock.startServer(server);
+  }
+
+  public Server createServer(String port, String contextPath) {
+    //Build Server
+    Server server = new Server(Integer.parseInt(port));
+
+    //Setup context path
+    ContextHandler contextHandler = new ContextHandler();
+    contextHandler.setContextPath(contextPath);
+    //context.setResourceBase(".");
+    //context.setClassLoader(Thread.currentThread().getContextClassLoader());
+    server.setHandler(contextHandler);
+
+    //Setup Handler
+    server.setHandler(getMockHandler());
+
+    return server;
+  }
+
+  public Handler getMockHandler() {
+    Handler handler = new AbstractHandler() {
+
+      public void handle(String string, Request request, HttpServletRequest httpServletRequest,
+              HttpServletResponse httpServletResponse) throws IOException, ServletException {
+        Log.info("Context: " + string);
+
+        Request baseRequest =
+                httpServletRequest instanceof Request ? (Request) httpServletRequest : HttpConnection.getCurrentConnection().getRequest();
+
+        String soapRequest = IOUtils.toString(baseRequest.getInputStream()).replace(" ", "").replaceAll("\n", "");
+        String soapRequestMD5Hash = DigestUtils.md5Hex(soapRequest);
+
+        Log.info("SOAP Request: " + soapRequest);
+        Log.info("SOAP Request MD5 Hash: " + soapRequestMD5Hash);
+
+        String soapResponse = "";
+        if (soapResMap.containsKey(soapRequestMD5Hash)) {
+          if (isDynamicReloadingEnabled) {
+            soapResponse = IOUtils.toString(new FileInputStream(soapResDir + File.separator + string + File.separator + soapRequestMD5Hash));
+            soapResMap.put(soapRequestMD5Hash, soapResponse);
+          } else {
+            soapResponse = soapResMap.get(soapRequestMD5Hash);
+          }
+        } else {
+          if (new File(soapResDir + File.separator + string + File.separator + soapRequestMD5Hash).exists()) {
+            soapResponse = IOUtils.toString(new FileInputStream(soapResDir + File.separator + string + File.separator + soapRequestMD5Hash));
+            soapResMap.put(soapRequestMD5Hash, soapResponse);
+          }
+        }
+
+        Log.info("SOAP Response: " + soapResponse);
+
+        httpServletResponse.setContentType("text/xml;charset=utf-8");
+        httpServletResponse.setStatus(HttpServletResponse.SC_OK);
+        httpServletResponse.getWriter().println(soapResponse);
+        ((Request) httpServletRequest).setHandled(true);
+      }
+    };
+    return handler;
+  }
+
+  public void startServer(Server server) throws Exception {
+    server.start();
+    server.join();
+  }
+}
