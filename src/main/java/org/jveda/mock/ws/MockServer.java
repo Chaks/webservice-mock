@@ -179,7 +179,7 @@ public class MockServer {
               sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
               soapResponse = receiveSoapResponse(socket);
               logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequestForHash);
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
               logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
               writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
             } else {
@@ -232,6 +232,7 @@ public class MockServer {
         }
 
         logger.debug("SOAP response: " + soapResponse);
+        logger.info("SOAP response hash file " + soapResDir + serviceObject.getContextPath() + "/" + soapRequestMD5Hash);
 
         httpServletResponse.setContentType("text/xml;charset=utf-8");
         httpServletResponse.setStatus(HttpServletResponse.SC_OK);
@@ -296,17 +297,17 @@ public class MockServer {
     logger.info("Current time " + new Date());
     logger.info("File last modified at " + new Date(lastModifed));
     logger.info("File refresh interval " + refreshInterval + " minutes");
-    return ((System.currentTimeMillis() - lastModifed) >= (refreshInterval * 1000));
+    return ((System.currentTimeMillis() - lastModifed) >= (refreshInterval * 60 * 1000));
   }
 
   private String getSoapResponseFromHashFile(String contextPath, String fileName) throws Exception {
     return IOUtils.toString(new FileInputStream(soapResDir + File.separator + contextPath + File.separator + fileName));
   }
 
-  private void writeSoapMessageToHashFile(String contextPath, String fileName, String soapResponse) throws Exception {
+  private void writeSoapMessageToHashFile(String contextPath, String fileName, String soapMessage) throws Exception {
     BufferedWriter bw =
             new BufferedWriter(new FileWriter(new File(soapResDir + File.separator + contextPath + File.separator + fileName)));
-    bw.write(soapResponse);
+    bw.write(soapMessage);
     bw.close();
   }
 
