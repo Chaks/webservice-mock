@@ -1,3 +1,4 @@
- [
-    { "hostName": "domain","port": 7890,"contextPath": "/services/HelloWorld", "refreshInterval": 60000,"mirrorEnabled": false,"detachHeader":false,"detachElementList":[],"directoryBrowsing":true}
-  ]
+[
+  { "hostName": "localhost","port": 7890,"contextPath": "/services/HelloWorld", "refreshInterval": 5,"mirrorEnabled": false,"detachHeader":false,"detachElementList":[],"directoryBrowsing":true},
+  { "hostName": "www.webservicex.net","port": 80,"contextPath": "/globalweather.asmx", "refreshInterval": 15,"mirrorEnabled": true,"detachHeader":true,"detachElementList":["Envelope/Body/GetCitiesByCountry/CountryName"],"directoryBrowsing":true}
+]
