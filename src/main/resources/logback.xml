@@ -12,7 +12,7 @@
     </encoder>
   </appender>
 
-  <root level="debug">
+  <root level="${log.level}">
     <appender-ref ref="stdOut" />
     <appender-ref ref="file" />
   </root>
