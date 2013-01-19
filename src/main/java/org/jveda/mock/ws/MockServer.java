@@ -11,8 +11,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -36,7 +34,8 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.server.handler.ResourceHandler;
-import org.eclipse.jetty.util.log.Log;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
@@ -44,6 +43,7 @@ import org.eclipse.jetty.util.log.Log;
  */
 public class MockServer {
 
+  final static Logger logger = LoggerFactory.getLogger(MockServer.class);
   private static String soapResDir;
   private static String jsonConfigFile;
   private static Map<String, Long> hashLastModifiedMap = new ConcurrentHashMap<String, Long>();
@@ -75,12 +75,12 @@ public class MockServer {
     MockServer webServiceMock = new MockServer();
     webServiceMock.loadServiceConfig();
 
-    Log.info("Service Map: " + serviceMap);
+    logger.info("Service Map: " + serviceMap);
 
     //isDynamicReloadingEnabled = "true".equals(args[3]) ? true : false;
 
     Server server = webServiceMock.createServer(args[0], args[1], args[2]);
-    Log.info("Creating server with context " + args[1] + " on port " + args[0] + ", serving " + args[2]);
+    logger.info("Creating server with context " + args[1] + " on port " + args[0] + ", serving " + args[2]);
 
     webServiceMock.startServer(server);
   }
@@ -125,13 +125,13 @@ public class MockServer {
     Handler handler = new AbstractHandler() {
       public void handle(String contextPath, Request request, HttpServletRequest httpServletRequest,
               HttpServletResponse httpServletResponse) throws IOException, ServletException {
-        Log.info("Context: " + contextPath);
+        logger.info("Context: " + contextPath);
 
         //Load Json config again
         loadServiceConfig();
         Service serviceObject = serviceMap.get(contextPath);
         if (null == serviceObject) {
-          Log.info("Json config not available for the context " + contextPath);
+          logger.info("Json config not available for the context " + contextPath);
           return;
         }
 
@@ -153,14 +153,14 @@ public class MockServer {
                     detachElementsFromBody(soapRequestForHash, serviceObject.getDetachElementList());
           }
         } catch (Exception ex) {
-          Logger.getLogger(MockServer.class.getName()).log(Level.SEVERE, null, ex);
+          logger.error("Exception while detaching", ex);
         }
 
         String soapRequestMD5Hash = createHash(soapRequestForHash);
 
-        Log.info("SOAP request: " + soapRequest);
-        //Log.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
-        Log.info("SOAP request MD5 hash, after detaching and dropping namespaces: " + soapRequestMD5Hash);
+        logger.info("SOAP request: " + soapRequest);
+        //logger.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
+        logger.info("SOAP request MD5 hash, after detaching and dropping namespaces: " + soapRequestMD5Hash);
 
         boolean isRefreshRequired = false;
         if (hashLastModifiedMap.containsKey(soapRequestMD5Hash)) {
@@ -170,21 +170,21 @@ public class MockServer {
         String soapResponse = "";
         try {
           if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
-            Log.info("Hash file " + soapRequestMD5Hash + " not available");
+            logger.info("Hash file " + soapRequestMD5Hash + " not available");
             if (serviceObject.isMirrorEnabled()) {
-              Log.info("Mirror enabled");
-              Log.info("Hitting actual endpoint at "
+              logger.info("Mirror enabled");
+              logger.info("Hitting actual endpoint at "
                       + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
               Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
               sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
               soapResponse = receiveSoapResponse(socket);
-              Log.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
               writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequestForHash);
-              Log.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
+              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
               writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
             } else {
-              Log.info("Mirror not enabled");
-              Log.info("Creating hash file " + soapRequestMD5Hash + " for the first time");
+              logger.info("Mirror not enabled");
+              logger.info("Creating hash file " + soapRequestMD5Hash + " for the first time");
               createHashFile(contextPath, soapRequestMD5Hash);
             }
             soapResMap.put(soapRequestMD5Hash, soapResponse);
@@ -192,46 +192,46 @@ public class MockServer {
           } else if (soapResMap.containsKey(soapRequestMD5Hash) && !isRefreshRequired) {
             //Detect file change and load the content
             if (hashLastModifiedMap.get(soapRequestMD5Hash) != getHashFileLastModified(contextPath, soapRequestMD5Hash)) {
-              Log.info("Hash file " + soapRequestMD5Hash + " changed");
-              Log.info("Refresh required for hash " + soapRequestMD5Hash);
-              Log.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
+              logger.info("Hash file " + soapRequestMD5Hash + " changed");
+              logger.info("Refresh required for hash " + soapRequestMD5Hash);
+              logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
               soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
               soapResMap.put(soapRequestMD5Hash, soapResponse);
               hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
             } else {
-              Log.info("Hash file " + soapRequestMD5Hash + " not changed");
-              Log.info("Refresh not required for hash " + soapRequestMD5Hash);
-              Log.info("SOAP response for the hash " + soapRequestMD5Hash + " available in In-Memory");
+              logger.info("Hash file " + soapRequestMD5Hash + " not changed");
+              logger.info("Refresh not required for hash " + soapRequestMD5Hash);
+              logger.info("SOAP response for the hash " + soapRequestMD5Hash + " available in In-Memory");
               soapResponse = soapResMap.get(soapRequestMD5Hash);
             }
           } else if (hashLastModifiedMap.containsKey(soapRequestMD5Hash) && isRefreshRequired) {
-            Log.info("Refresh required for hash " + soapRequestMD5Hash);
+            logger.info("Refresh required for hash " + soapRequestMD5Hash);
             if (serviceObject.isMirrorEnabled()) {
-              Log.info("Mirror enabled");
-              Log.info("Hitting actual endpoint at "
+              logger.info("Mirror enabled");
+              logger.info("Hitting actual endpoint at "
                       + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
               Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
               sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
               soapResponse = receiveSoapResponse(socket);
               writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse); //Update content to hash file
             } else {
-              Log.info("Mirror not  enabled");
-              Log.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
+              logger.info("Mirror not  enabled");
+              logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
               soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
             }
             soapResMap.put(soapRequestMD5Hash, soapResponse);
             hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
           } else if (hashFileExists(contextPath, soapRequestMD5Hash)) {
-            Log.info("Getting SOAP response from already existing hash file " + soapRequestMD5Hash);
+            logger.info("Getting SOAP response from already existing hash file " + soapRequestMD5Hash);
             soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
             soapResMap.put(soapRequestMD5Hash, soapResponse);
             hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
           }
         } catch (Exception ex) {
-          Logger.getLogger(MockServer.class.getName()).log(Level.SEVERE, null, ex);
+          logger.error("Exception while processing", ex);
         }
 
-        Log.info("SOAP response: " + soapResponse);
+        logger.debug("SOAP response: " + soapResponse);
 
         httpServletResponse.setContentType("text/xml;charset=utf-8");
         httpServletResponse.setStatus(HttpServletResponse.SC_OK);
@@ -293,10 +293,10 @@ public class MockServer {
   }
 
   private boolean refreshRequired(long lastModifed, long refreshInterval) {
-    Log.info("Current time " + new Date());
-    Log.info("File last modified at " + new Date(lastModifed));
-    Log.info("File refresh interval " + refreshInterval / 1000 + " seconds");
-    return ((System.currentTimeMillis() - lastModifed) >= refreshInterval);
+    logger.info("Current time " + new Date());
+    logger.info("File last modified at " + new Date(lastModifed));
+    logger.info("File refresh interval " + refreshInterval + " minutes");
+    return ((System.currentTimeMillis() - lastModifed) >= (refreshInterval * 1000));
   }
 
   private String getSoapResponseFromHashFile(String contextPath, String fileName) throws Exception {
@@ -358,7 +358,7 @@ public class MockServer {
     List<Element> elements = document.getRootElement().elements();
     for (Element element : elements) {
       if ("Header".equals(element.getName())) {
-        Log.info("Detaching SOAP Header for hashing");
+        logger.info("Detaching SOAP Header for hashing");
         element.detach();
         break;
       }
@@ -379,7 +379,7 @@ public class MockServer {
       if (detachElement != null && !"".equals(detachElement)) {
         Node nodeToBeDetached = document.selectSingleNode(detachElement);
         if (nodeToBeDetached != null) {
-          Log.info("Detaching SOAP Element " + nodeToBeDetached.getName() + " for hashing");
+          logger.info("Detaching SOAP Element " + nodeToBeDetached.getName() + " for hashing");
           nodeToBeDetached.detach();
         }
       }
