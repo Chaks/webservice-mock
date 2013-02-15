@@ -15,6 +15,7 @@ public class Service {
   private String hostName;
   private String contextPath;
   private List<String> detachElementList;
+  private List<String> ignoreOperationList;
   private int port;
   private long refreshInterval;
   private boolean mirrorEnabled;
@@ -67,6 +68,22 @@ public class Service {
    */
   public void setDetachElementList(List<String> detachElementList) {
     this.detachElementList = detachElementList;
+  }
+
+  /**
+   *
+   * @return
+   */
+  public List<String> getIgnoreOperationList() {
+    return ignoreOperationList;
+  }
+
+  /**
+   *
+   * @param ignoreOperationList
+   */
+  public void setIgnoreOperationList(List<String> ignoreOperationList) {
+    this.ignoreOperationList = ignoreOperationList;
   }
 
   /**
@@ -153,14 +170,15 @@ public class Service {
   public String toString() {
     StringBuilder builder = new StringBuilder();
     builder.append("Service [");
-    builder.append("contextPath=").append(contextPath);
-    builder.append(", detachElementList=").append(detachElementList);
-    builder.append(", detachHeader=").append(detachHeader);
-    builder.append(", directoryBrowsing=").append(directoryBrowsing);
-    builder.append(", hostName=").append(hostName);
-    builder.append(", mirrorEnabled=").append(mirrorEnabled);
-    builder.append(", port=").append(port);
-    builder.append(", refreshInterval=").append(refreshInterval);
+    builder.append("getContextPath=").append(getContextPath());
+    builder.append(", getDetachElementList=").append(getDetachElementList());
+    builder.append(", getHostName=").append(getHostName());
+    builder.append(", getIgnoreOperationList=").append(getIgnoreOperationList());
+    builder.append(", getPort=").append(getPort());
+    builder.append(", getRefreshInterval=").append(getRefreshInterval());
+    builder.append(", isDetachHeader=").append(isDetachHeader());
+    builder.append(", isDirectoryBrowsing=").append(isDirectoryBrowsing());
+    builder.append(", isMirrorEnabled=").append(isMirrorEnabled());
     builder.append("]");
     return builder.toString();
   }
