@@ -127,8 +127,8 @@ public class MockServer {
               HttpServletResponse httpServletResponse) throws IOException, ServletException {
         logger.info("Context: " + contextPath);
 
-        //Load Json config again
-        loadServiceConfig();
+        //Load json config again
+        //loadServiceConfig();
         Service serviceObject = serviceMap.get(contextPath);
         if (null == serviceObject) {
           logger.info("Json config not available for the context " + contextPath);
@@ -169,26 +169,19 @@ public class MockServer {
 
         String soapResponse = "";
         try {
-          if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
-            logger.info("Hash file " + soapRequestMD5Hash + " not available");
-            if (serviceObject.isMirrorEnabled()) {
-              logger.info("Mirror enabled");
-              logger.info("Hitting actual endpoint at "
-                      + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
-              Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
-              sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
-              soapResponse = receiveSoapResponse(socket);
-              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
-              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
-            } else {
-              logger.info("Mirror not enabled");
-              logger.info("Creating hash file " + soapRequestMD5Hash + " for the first time");
-              createHashFile(contextPath, soapRequestMD5Hash);
-            }
-            soapResMap.put(soapRequestMD5Hash, soapResponse);
-            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+          /*
+           * If refreshInterval is 0, hit the true endpoint.
+           * Check for any operation exclusion, so that the response is always from a true endpoint.
+           */
+          if (serviceObject.getRefreshInterval() == 0
+                  || isOperationExcluded(serviceObject.getIgnoreOperationList(), soapRequest)) {  //Mock disabled
+            logger.info("Refresh interval is either '0' or operation is configured in the exclusion list");
+            logger.info("Mirror enabled");
+            logger.info("Hitting actual endpoint at "
+                    + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
+            Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
+            sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
+            soapResponse = receiveSoapResponse(socket);
           } else if (soapResMap.containsKey(soapRequestMD5Hash) && !isRefreshRequired) {
             //Detect file change and load the content
             if (hashLastModifiedMap.get(soapRequestMD5Hash) != getHashFileLastModified(contextPath, soapRequestMD5Hash)) {
@@ -218,6 +211,26 @@ public class MockServer {
               logger.info("Mirror not  enabled");
               logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
               soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
+            }
+            soapResMap.put(soapRequestMD5Hash, soapResponse);
+            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+          } else if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
+            logger.info("Hash file " + soapRequestMD5Hash + " not available");
+            if (serviceObject.isMirrorEnabled()) {
+              logger.info("Mirror enabled");
+              logger.info("Hitting actual endpoint at "
+                      + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
+              Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
+              sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
+              soapResponse = receiveSoapResponse(socket);
+              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
+              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
+            } else {
+              logger.info("Mirror not enabled");
+              logger.info("Creating hash file " + soapRequestMD5Hash + " for the first time");
+              createHashFile(contextPath, soapRequestMD5Hash);
             }
             soapResMap.put(soapRequestMD5Hash, soapResponse);
             hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
@@ -264,6 +277,7 @@ public class MockServer {
       Service service = new Service();
       service.setContextPath(jsonService.getContextPath());
       service.setDetachElementList(jsonService.getDetachElementList());
+      service.setIgnoreOperationList(jsonService.getIgnoreOperationList());
       service.setDetachHeader(jsonService.isDetachHeader());
       service.setDirectoryBrowsing(jsonService.isDirectoryBrowsing());
       service.setHostName(jsonService.getHostName());
@@ -273,6 +287,19 @@ public class MockServer {
 
       serviceMap.put(jsonService.getContextPath(), service);
     }
+  }
+
+  private boolean isOperationExcluded(List<String> operationExclusionList, String soapRequest) {
+    boolean operationExcluded = false;
+    if (operationExclusionList != null) {
+      for (String operation : operationExclusionList) {
+        if (operation.trim().length() > 0 && soapRequest.contains(operation)) {
+          operationExcluded = true;
+          break;
+        }
+      }
+    }
+    return operationExcluded;
   }
 
   private String createHash(String s) {
