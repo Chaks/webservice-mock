@@ -158,7 +158,7 @@ public class MockServer {
 
         String soapRequestMD5Hash = createHash(soapRequestForHash);
 
-        logger.info("SOAP request: " + soapRequest);
+        logger.debug("SOAP request: " + soapRequest);
         //logger.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
         logger.info("SOAP request MD5 hash, after detaching and dropping namespaces: " + soapRequestMD5Hash);
 
@@ -182,6 +182,30 @@ public class MockServer {
             Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
             sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
             soapResponse = receiveSoapResponse(socket);
+          } else if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
+            logger.info("Hash file " + soapRequestMD5Hash + " not available");
+            if (serviceObject.isMirrorEnabled()) {
+              logger.info("Mirror enabled");
+              logger.info("Hitting actual endpoint at "
+                      + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
+              Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
+              sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
+              soapResponse = receiveSoapResponse(socket);
+              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
+              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
+            } else {
+              logger.info("Mirror not enabled");
+              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
+              logger.info("Writing dummy SOAP response to hash file " + soapRequestMD5Hash);
+              SoapGenerator soapGenerator = new SoapGenerator();
+              soapResponse = soapGenerator.createDummyResponse(serviceObject, soapRequest);
+              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
+            }
+            soapResMap.put(soapRequestMD5Hash, soapResponse);
+            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
           } else if (soapResMap.containsKey(soapRequestMD5Hash) && !isRefreshRequired) {
             //Detect file change and load the content
             if (hashLastModifiedMap.get(soapRequestMD5Hash) != getHashFileLastModified(contextPath, soapRequestMD5Hash)) {
@@ -214,26 +238,6 @@ public class MockServer {
             }
             soapResMap.put(soapRequestMD5Hash, soapResponse);
             hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
-          } else if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
-            logger.info("Hash file " + soapRequestMD5Hash + " not available");
-            if (serviceObject.isMirrorEnabled()) {
-              logger.info("Mirror enabled");
-              logger.info("Hitting actual endpoint at "
-                      + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
-              Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
-              sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
-              soapResponse = receiveSoapResponse(socket);
-              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
-              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
-            } else {
-              logger.info("Mirror not enabled");
-              logger.info("Creating hash file " + soapRequestMD5Hash + " for the first time");
-              createHashFile(contextPath, soapRequestMD5Hash);
-            }
-            soapResMap.put(soapRequestMD5Hash, soapResponse);
-            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
           } else if (hashFileExists(contextPath, soapRequestMD5Hash)) {
             logger.info("Getting SOAP response from already existing hash file " + soapRequestMD5Hash);
             soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
@@ -246,6 +250,7 @@ public class MockServer {
 
         logger.debug("SOAP response: " + soapResponse);
         logger.info("SOAP response hash file " + soapResDir + serviceObject.getContextPath() + "/" + soapRequestMD5Hash);
+        logger.info("");
 
         httpServletResponse.setContentType("text/xml;charset=utf-8");
         httpServletResponse.setStatus(HttpServletResponse.SC_OK);
@@ -304,10 +309,6 @@ public class MockServer {
 
   private String createHash(String s) {
     return DigestUtils.md5Hex(s);
-  }
-
-  private void createHashFile(String contextPath, String fileName) throws Exception {
-    new File(soapResDir + File.separator + contextPath + File.separator + fileName).createNewFile();
   }
 
   private boolean hashFileExists(String contextPath, String fileName) {
