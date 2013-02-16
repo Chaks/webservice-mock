@@ -1,5 +1,5 @@
 # [WebService Mock](https://github.com/Chaks/webservice-mock)
-WebService Mock is a very simple yet powerful tool for mocking WebServices.
+**WebService Mock** is a very simple yet powerful tool for mocking WebServices.
 
 ## Why WebService Mock?
 
