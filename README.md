@@ -3,11 +3,9 @@
 <head>
 	<meta charset="utf-8">
   <title>WebService Mock</title>
-   
-  <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.3.0/css/bootstrap-combined.min.css">
 </head>
 
-<div class="hero-unit">
+<div>
 	<h1>WebService Mock</h1>
 </div>
 
