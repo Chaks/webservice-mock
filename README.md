@@ -18,12 +18,24 @@ java -jar webservice-mock-1.0-BETA.jar 2345 / /home/dchakr/testDir /home/dchakr/
 
 ## How to configure?
 
+Below is a sample JSON configuration.
+
 ```
 [
   { "hostName": "www.webservicex.net","port": 80,"contextPath": "/globalweather.asmx", "refreshInterval": 3,"mirrorEnabled": 		false,"detachHeader":true,"detachElementList":["Envelope/Body/GetCitiesByCountry/CountryName"],"ignoreOperationList":["GetWeather"],"directoryBrowsing":true},
   { "hostName": "graphical.weather.gov","port": 80,"contextPath": "/xml/SOAP_server/ndfdXMLserver.php", "refreshInterval": 5,"mirrorEnabled": true,"detachHeader":true,"detachElementList":[""],"ignoreOperationList":[""],"directoryBrowsing":true}
 ]
 ```
+
+* **hostName** - 
+* **port** - 
+* **contextPath** - 
+* **refreshInterval** - 
+* **mirrorEnabled** - 
+* **detachHeader** - 
+* **detachElementList** - 
+* **ignoreOperationList** - 
+* **directoryBrowsing** - 
 
 ## How it works?
 
