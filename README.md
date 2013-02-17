@@ -25,9 +25,6 @@ java -jar webservice-mock-1.0-BETA.jar 2345 / /home/dchakr/testDir /home/dchakr/
 ]
 ```
 
-
-Extract the zip and run the following co
-
 ## How it works?
 
 ## Authors
