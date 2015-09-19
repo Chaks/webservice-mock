@@ -8,6 +8,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,6 +17,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.time.StopWatch;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.type.TypeReference;
 import org.dom4j.Attribute;
@@ -46,9 +48,9 @@ public class MockServer {
   final static Logger logger = LoggerFactory.getLogger(MockServer.class);
   private static String soapResDir;
   private static String jsonConfigFile;
-  private static Map<String, Long> hashLastModifiedMap = new ConcurrentHashMap<String, Long>();
-  private static Map<String, String> soapResMap = new ConcurrentHashMap<String, String>();
-  private static Map<String, Service> serviceMap = new ConcurrentHashMap<String, Service>();
+  private static final Map<String, Long> hashLastModifiedMap = new ConcurrentHashMap<String, Long>();
+  private static final Map<String, String> soapResMap = new ConcurrentHashMap<String, String>();
+  private static final Map<String, Service> serviceMap = new ConcurrentHashMap<String, Service>();
 
   /**
    *
@@ -58,8 +60,7 @@ public class MockServer {
   public static void main(String args[]) throws Exception {
 
     //Graffiti
-    BufferedReader br =
-            new BufferedReader(new InputStreamReader(MockServer.class.getResourceAsStream("/graffiti")));
+    BufferedReader br = new BufferedReader(new InputStreamReader(MockServer.class.getResourceAsStream("/graffiti")));
 
     String line;
     while ((line = br.readLine()) != null) {
@@ -78,7 +79,6 @@ public class MockServer {
     logger.info("Service Map: " + serviceMap);
 
     //isDynamicReloadingEnabled = "true".equals(args[3]) ? true : false;
-
     Server server = webServiceMock.createServer(args[0], args[1], args[2]);
     logger.info("Creating server with context " + args[1] + " on port " + args[0] + ", serving " + args[2]);
 
@@ -123,8 +123,11 @@ public class MockServer {
    */
   public Handler getMockHandler() {
     Handler handler = new AbstractHandler() {
+      @Override
       public void handle(String contextPath, Request request, HttpServletRequest httpServletRequest,
               HttpServletResponse httpServletResponse) throws IOException, ServletException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
         logger.info("Context: " + contextPath);
 
         //Load json config again
@@ -135,11 +138,19 @@ public class MockServer {
           return;
         }
 
-        Request baseRequest =
-                httpServletRequest instanceof Request ? (Request) httpServletRequest : HttpConnection.getCurrentConnection().getRequest();
+        Request baseRequest
+                = httpServletRequest instanceof Request ? (Request) httpServletRequest : HttpConnection.getCurrentConnection().getRequest();
 
         //String soapRequest = IOUtils.toString(baseRequest.getInputStream()).replaceAll("\n", "");
         String soapRequest = IOUtils.toString(baseRequest.getInputStream());
+
+        String hashFileIdentifier = "";
+        try {
+          hashFileIdentifier = buildIdentifierForHash(soapRequest, serviceObject.getIdentifierList());
+        } catch (Exception ex) {
+          logger.error("Exception while building identifier for hash", ex);
+        }
+
         String soapRequestForHash = "";
         try {
           if (serviceObject.isDetachHeader()) {
@@ -149,14 +160,14 @@ public class MockServer {
           }
 
           if (serviceObject.getDetachElementList() != null && !serviceObject.getDetachElementList().isEmpty()) {
-            soapRequestForHash =
-                    detachElementsFromBody(soapRequestForHash, serviceObject.getDetachElementList());
+            soapRequestForHash
+                    = detachElementsFromBody(soapRequestForHash, serviceObject.getDetachElementList());
           }
         } catch (Exception ex) {
           logger.error("Exception while detaching", ex);
         }
 
-        String soapRequestMD5Hash = createHash(soapRequestForHash);
+        String soapRequestMD5Hash = createHash(soapRequestForHash, hashFileIdentifier);
 
         logger.debug("SOAP request: " + soapRequest);
         //logger.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
@@ -176,7 +187,7 @@ public class MockServer {
           if (serviceObject.getRefreshInterval() == 0
                   || isOperationExcluded(serviceObject.getIgnoreOperationList(), soapRequest)) {  //Mock disabled
             logger.info("Refresh interval is either '0' or operation is configured in the exclusion list");
-            logger.info("Mirror enabled");
+            //logger.info("Mirror enabled");
             logger.info("Hitting actual endpoint at "
                     + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
             Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
@@ -256,6 +267,9 @@ public class MockServer {
         httpServletResponse.setStatus(HttpServletResponse.SC_OK);
         httpServletResponse.getWriter().println(soapResponse);
         ((Request) httpServletRequest).setHandled(true);
+        
+        stopWatch.stop();
+        logger.debug(stopWatch.toString());
       }
     };
     return handler;
@@ -282,6 +296,7 @@ public class MockServer {
       Service service = new Service();
       service.setContextPath(jsonService.getContextPath());
       service.setDetachElementList(jsonService.getDetachElementList());
+      service.setIdentifierList(jsonService.getIdentifierList());
       service.setIgnoreOperationList(jsonService.getIgnoreOperationList());
       service.setDetachHeader(jsonService.isDetachHeader());
       service.setDirectoryBrowsing(jsonService.isDirectoryBrowsing());
@@ -307,8 +322,11 @@ public class MockServer {
     return operationExcluded;
   }
 
-  private String createHash(String s) {
-    return DigestUtils.md5Hex(s);
+  private String createHash(String soapRequest, String hashIdentifier) {
+    StringBuilder hashFileName = new StringBuilder();
+    hashFileName.append(hashIdentifier);
+    hashFileName.append(DigestUtils.md5Hex(soapRequest));
+    return hashFileName.toString();
   }
 
   private boolean hashFileExists(String contextPath, String fileName) {
@@ -333,8 +351,8 @@ public class MockServer {
   }
 
   private void writeSoapMessageToHashFile(String contextPath, String fileName, String soapMessage) throws Exception {
-    BufferedWriter bw =
-            new BufferedWriter(new FileWriter(new File(soapResDir + File.separator + contextPath + File.separator + fileName)));
+    BufferedWriter bw
+            = new BufferedWriter(new FileWriter(new File(soapResDir + File.separator + contextPath + File.separator + fileName)));
     bw.write(soapMessage);
     bw.close();
   }
@@ -365,8 +383,7 @@ public class MockServer {
     boolean initRead = false;
     String line;
     while ((line = br.readLine()) != null) {
-      if (line.indexOf("<?xml") >= 0
-              || line.indexOf("<soapenv") >= 0) {
+      if (line.contains("<?xml") || line.contains("<soapenv")) {
         initRead = true;
       }
       if (initRead) {
@@ -416,6 +433,41 @@ public class MockServer {
 
     return document.asXML();
   }
+
+  private String buildIdentifierForHash(String soapRequest, List<String> identifierElementList) throws Exception {
+    StringBuilder identifier = new StringBuilder();
+    SAXReader reader = new SAXReader();
+    Document document = reader.read(new StringReader(soapRequest));
+    /**
+     * Clean namespaces
+     */
+    document.accept(new org.jveda.mock.ws.NameSpaceCleaner());
+    
+    Element rootElement = document.getRootElement();
+    for (Iterator i = rootElement.elementIterator("Body"); i.hasNext();) {
+      Element element = (Element) i.next();
+      for (Iterator j = element.elementIterator(); j.hasNext();) {
+        Element operationElement = (Element) j.next();
+        identifier.append(operationElement.getName());
+        identifier.append("_");
+        break;
+      }
+      break;
+    }
+
+    for (String identifierElement : identifierElementList) {
+      if (identifierElement != null && !"".equals(identifierElement)) {
+        Node identifiedNode = document.selectSingleNode(identifierElement);
+        if (identifiedNode != null) {
+          identifier.append(identifiedNode.getStringValue());
+          identifier.append("_");
+        }
+      }
+    }
+
+    return identifier.toString();
+  }
+
 }
 
 class NameSpaceCleaner extends VisitorSupport {
