@@ -5,7 +5,7 @@
 
   <groupId>org.jveda</groupId>
   <artifactId>webservice-mock</artifactId>
-  <version>1.0-BETA</version>
+  <version>v1</version>
   <packaging>jar</packaging>
 
   <name>webservice-mock</name>
