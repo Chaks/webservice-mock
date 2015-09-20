@@ -1,14 +1,15 @@
 <configuration>
-  <appender name="file" class="ch.qos.logback.core.FileAppender">
+  <!--<appender name="file" class="ch.qos.logback.core.FileAppender">
     <file>webservicemock.log</file>
     <encoder>
       <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
     </encoder>
-  </appender>
+  </appender>-->
   
   <appender name="stdOut" class="ch.qos.logback.core.ConsoleAppender">
+    <withJansi>true</withJansi>
     <encoder>
-      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{15}) - %msg%n</pattern>
     </encoder>
   </appender>
 
