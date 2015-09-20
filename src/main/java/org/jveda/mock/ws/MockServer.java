@@ -48,6 +48,7 @@ public class MockServer {
   final static Logger logger = LoggerFactory.getLogger(MockServer.class);
   private static String soapResDir;
   private static String jsonConfigFile;
+  private static String authCode = "";
   private static final Map<String, Long> hashLastModifiedMap = new ConcurrentHashMap<String, Long>();
   private static final Map<String, String> soapResMap = new ConcurrentHashMap<String, String>();
   private static final Map<String, Service> serviceMap = new ConcurrentHashMap<String, Service>();
@@ -69,9 +70,10 @@ public class MockServer {
 
     br.close();
 
-    // 6789   /services/HelloWorld    /home/dchakr/testDir    services.json
+    // 6789   /services/HelloWorld    /home/dchakr/soapReqResDir    services.json
     soapResDir = args[2];
     jsonConfigFile = args[3];
+    authCode = args[4];
 
     MockServer webServiceMock = new MockServer();
     webServiceMock.loadServiceConfig();
@@ -128,6 +130,7 @@ public class MockServer {
               HttpServletResponse httpServletResponse) throws IOException, ServletException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        logger.info("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::");
         logger.info("Context: " + contextPath);
 
         //Load json config again
@@ -144,132 +147,156 @@ public class MockServer {
         //String soapRequest = IOUtils.toString(baseRequest.getInputStream()).replaceAll("\n", "");
         String soapRequest = IOUtils.toString(baseRequest.getInputStream());
 
-        String hashFileIdentifier = "";
-        try {
-          hashFileIdentifier = buildIdentifierForHash(soapRequest, serviceObject.getIdentifierList());
-        } catch (Exception ex) {
-          logger.error("Exception while building identifier for hash", ex);
-        }
+        //Handle file edits
+        String authCodeParam = baseRequest.getParameter("authCodeParam");
+        String hashFileParam = baseRequest.getParameter("hashFileParam");
 
-        String soapRequestForHash = "";
-        try {
-          if (serviceObject.isDetachHeader()) {
-            soapRequestForHash = detachHeaderFromSoapRequest(soapRequest);
+        if (authCode.equals(authCodeParam) && hashFileParam != null) {
+          File responseHashFile = new File(soapResDir + File.separator + contextPath + File.separator + hashFileParam);
+          if (responseHashFile.exists()) {
+            logger.info("Attempting to modify the existing SOAP reponse " + responseHashFile.toString());
+            try {
+              writeSoapMessageToHashFile(contextPath, hashFileParam, soapRequest);
+              logger.info("Successfully modified the existing SOAP reponse " + responseHashFile.toString());
+            } catch (Exception ex) {
+              logger.error("Exception while modifying the existing SOAP reponse", ex);
+            }
+            httpServletResponse.setContentType("text/xml;charset=utf-8");
+            httpServletResponse.setStatus(HttpServletResponse.SC_OK);
+            httpServletResponse.getWriter().println(soapRequest);
+            ((Request) httpServletRequest).setHandled(true);
           } else {
-            soapRequestForHash = soapRequest;
+            logger.error("Failed to identify an existing SOAP response");
+            throw new IllegalArgumentException("Failed to identify an existing SOAP response");
+          }
+        } else {
+          String hashFileIdentifier = "";
+          try {
+            hashFileIdentifier = buildIdentifierForHash(soapRequest, serviceObject.getIdentifierList());
+          } catch (Exception ex) {
+            logger.error("Exception while building identifier for hash", ex);
           }
 
-          if (serviceObject.getDetachElementList() != null && !serviceObject.getDetachElementList().isEmpty()) {
-            soapRequestForHash
-                    = detachElementsFromBody(soapRequestForHash, serviceObject.getDetachElementList());
+          String soapRequestForHash = "";
+          try {
+            if (serviceObject.isDetachHeader()) {
+              soapRequestForHash = detachHeaderFromSoapRequest(soapRequest);
+            } else {
+              soapRequestForHash = soapRequest;
+            }
+
+            if (serviceObject.getDetachElementList() != null && !serviceObject.getDetachElementList().isEmpty()) {
+              soapRequestForHash
+                      = detachElementsFromBody(soapRequestForHash, serviceObject.getDetachElementList());
+            }
+          } catch (Exception ex) {
+            logger.error("Exception while detaching", ex);
           }
-        } catch (Exception ex) {
-          logger.error("Exception while detaching", ex);
-        }
 
-        String soapRequestMD5Hash = createHash(soapRequestForHash, hashFileIdentifier);
+          String soapRequestMD5Hash = createHash(soapRequestForHash, hashFileIdentifier);
 
-        logger.debug("SOAP request: " + soapRequest);
-        //logger.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
-        logger.info("SOAP request MD5 hash, after detaching and dropping namespaces: " + soapRequestMD5Hash);
+          logger.debug("SOAP request: " + soapRequest);
+          //logger.info("SOAP request for creating hash, after detaching and dropping namespaces: " + soapRequestForHash);
+          logger.info("SOAP request MD5 hash, after detaching and dropping namespaces: " + soapRequestMD5Hash);
 
-        boolean isRefreshRequired = false;
-        if (hashLastModifiedMap.containsKey(soapRequestMD5Hash)) {
-          isRefreshRequired = refreshRequired(hashLastModifiedMap.get(soapRequestMD5Hash), serviceObject.getRefreshInterval());
-        }
+          boolean isRefreshRequired = false;
+          if (hashLastModifiedMap.containsKey(soapRequestMD5Hash)) {
+            isRefreshRequired = refreshRequired(hashLastModifiedMap.get(soapRequestMD5Hash), serviceObject.getRefreshInterval());
+          }
 
-        String soapResponse = "";
-        try {
-          /*
-           * If refreshInterval is 0, hit the true endpoint.
-           * Check for any operation exclusion, so that the response is always from a true endpoint.
-           */
-          if (serviceObject.getRefreshInterval() == 0
-                  || isOperationExcluded(serviceObject.getIgnoreOperationList(), soapRequest)) {  //Mock disabled
-            logger.info("Refresh interval is either '0' or operation is configured in the exclusion list");
-            //logger.info("Mirror enabled");
-            logger.info("Hitting actual endpoint at "
-                    + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
-            Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
-            sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
-            soapResponse = receiveSoapResponse(socket);
-          } else if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
-            logger.info("Hash file " + soapRequestMD5Hash + " not available");
-            if (serviceObject.isMirrorEnabled()) {
-              logger.info("Mirror enabled");
+          String soapResponse = "";
+          try {
+            /*
+             * If refreshInterval is 0, hit the true endpoint.
+             * Check for any operation exclusion, so that the response is always from a true endpoint.
+             */
+            if (serviceObject.getRefreshInterval() == 0
+                    || isOperationExcluded(serviceObject.getIgnoreOperationList(), soapRequest)) {  //Mock disabled
+              logger.info("Refresh interval is either '0' or operation is configured in the exclusion list");
+              //logger.info("Mirror enabled");
               logger.info("Hitting actual endpoint at "
                       + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
               Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
               sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
               soapResponse = receiveSoapResponse(socket);
-              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
-              logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
-            } else {
-              logger.info("Mirror not enabled");
-              logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
-              logger.info("Writing dummy SOAP response to hash file " + soapRequestMD5Hash);
-              SoapGenerator soapGenerator = new SoapGenerator();
-              soapResponse = soapGenerator.createDummyResponse(serviceObject, soapRequest);
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
-            }
-            soapResMap.put(soapRequestMD5Hash, soapResponse);
-            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
-          } else if (soapResMap.containsKey(soapRequestMD5Hash) && !isRefreshRequired) {
-            //Detect file change and load the content
-            if (hashLastModifiedMap.get(soapRequestMD5Hash) != getHashFileLastModified(contextPath, soapRequestMD5Hash)) {
-              logger.info("Hash file " + soapRequestMD5Hash + " changed");
+            } else if (!hashFileExists(contextPath, soapRequestMD5Hash)) {
+              logger.info("Hash file " + soapRequestMD5Hash + " not available");
+              if (serviceObject.isMirrorEnabled()) {
+                logger.info("Mirror enabled");
+                logger.info("Hitting actual endpoint at "
+                        + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
+                Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
+                sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
+                soapResponse = receiveSoapResponse(socket);
+                logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+                writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
+                logger.info("Writing SOAP response to hash file " + soapRequestMD5Hash);
+                writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
+              } else {
+                logger.info("Mirror not enabled");
+                logger.info("Writing SOAP request to hash file " + soapRequestMD5Hash + "~");
+                writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash + "~", soapRequest);
+                logger.info("Writing dummy SOAP response to hash file " + soapRequestMD5Hash);
+                SoapGenerator soapGenerator = new SoapGenerator();
+                soapResponse = soapGenerator.createDummyResponse(serviceObject, soapRequest);
+                writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse);
+              }
+              soapResMap.put(soapRequestMD5Hash, soapResponse);
+              hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+            } else if (soapResMap.containsKey(soapRequestMD5Hash) && !isRefreshRequired) {
+              //Detect file change and load the content
+              if (hashLastModifiedMap.get(soapRequestMD5Hash) != getHashFileLastModified(contextPath, soapRequestMD5Hash)) {
+                logger.info("Hash file " + soapRequestMD5Hash + " changed");
+                logger.info("Refresh required for hash " + soapRequestMD5Hash);
+                logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
+                soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
+                soapResMap.put(soapRequestMD5Hash, soapResponse);
+                hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+              } else {
+                logger.info("Hash file " + soapRequestMD5Hash + " not changed");
+                logger.info("Refresh not required for hash " + soapRequestMD5Hash);
+                logger.info("SOAP response for the hash " + soapRequestMD5Hash + " available in In-Memory");
+                soapResponse = soapResMap.get(soapRequestMD5Hash);
+              }
+            } else if (hashLastModifiedMap.containsKey(soapRequestMD5Hash) && isRefreshRequired) {
               logger.info("Refresh required for hash " + soapRequestMD5Hash);
-              logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
+              if (serviceObject.isMirrorEnabled()) {
+                logger.info("Mirror enabled");
+                logger.info("Hitting actual endpoint at "
+                        + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
+                Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
+                sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
+                soapResponse = receiveSoapResponse(socket);
+                writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse); //Update content to hash file
+              } else {
+                logger.info("Mirror not  enabled");
+                logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
+                soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
+              }
+              soapResMap.put(soapRequestMD5Hash, soapResponse);
+              hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+            } else if (hashFileExists(contextPath, soapRequestMD5Hash)) {
+              logger.info("Getting SOAP response from already existing hash file " + soapRequestMD5Hash);
               soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
               soapResMap.put(soapRequestMD5Hash, soapResponse);
               hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
-            } else {
-              logger.info("Hash file " + soapRequestMD5Hash + " not changed");
-              logger.info("Refresh not required for hash " + soapRequestMD5Hash);
-              logger.info("SOAP response for the hash " + soapRequestMD5Hash + " available in In-Memory");
-              soapResponse = soapResMap.get(soapRequestMD5Hash);
             }
-          } else if (hashLastModifiedMap.containsKey(soapRequestMD5Hash) && isRefreshRequired) {
-            logger.info("Refresh required for hash " + soapRequestMD5Hash);
-            if (serviceObject.isMirrorEnabled()) {
-              logger.info("Mirror enabled");
-              logger.info("Hitting actual endpoint at "
-                      + serviceObject.getHostName() + ":" + serviceObject.getPort() + "" + serviceObject.getContextPath());
-              Socket socket = createSocket(serviceObject.getHostName(), serviceObject.getPort() + "");
-              sendSoapRequest(socket, serviceObject.getContextPath(), soapRequest);
-              soapResponse = receiveSoapResponse(socket);
-              writeSoapMessageToHashFile(contextPath, soapRequestMD5Hash, soapResponse); //Update content to hash file
-            } else {
-              logger.info("Mirror not  enabled");
-              logger.info("Getting SOAP response from hash file " + soapRequestMD5Hash);
-              soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
-            }
-            soapResMap.put(soapRequestMD5Hash, soapResponse);
-            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
-          } else if (hashFileExists(contextPath, soapRequestMD5Hash)) {
-            logger.info("Getting SOAP response from already existing hash file " + soapRequestMD5Hash);
-            soapResponse = getSoapResponseFromHashFile(contextPath, soapRequestMD5Hash);
-            soapResMap.put(soapRequestMD5Hash, soapResponse);
-            hashLastModifiedMap.put(soapRequestMD5Hash, getHashFileLastModified(contextPath, soapRequestMD5Hash));
+          } catch (Exception ex) {
+            logger.error("Exception while processing", ex);
           }
-        } catch (Exception ex) {
-          logger.error("Exception while processing", ex);
+
+          logger.debug("SOAP response: " + soapResponse);
+          logger.info("SOAP response hash file " + soapResDir + serviceObject.getContextPath() + "/" + soapRequestMD5Hash);
+
+          httpServletResponse.setContentType("text/xml;charset=utf-8");
+          httpServletResponse.setStatus(HttpServletResponse.SC_OK);
+          httpServletResponse.getWriter().println(soapResponse);
+          ((Request) httpServletRequest).setHandled(true);
         }
 
-        logger.debug("SOAP response: " + soapResponse);
-        logger.info("SOAP response hash file " + soapResDir + serviceObject.getContextPath() + "/" + soapRequestMD5Hash);
-        logger.info("");
-
-        httpServletResponse.setContentType("text/xml;charset=utf-8");
-        httpServletResponse.setStatus(HttpServletResponse.SC_OK);
-        httpServletResponse.getWriter().println(soapResponse);
-        ((Request) httpServletRequest).setHandled(true);
-        
         stopWatch.stop();
         logger.debug(stopWatch.toString());
+        logger.info("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::");
       }
     };
     return handler;
@@ -442,7 +469,7 @@ public class MockServer {
      * Clean namespaces
      */
     document.accept(new org.jveda.mock.ws.NameSpaceCleaner());
-    
+
     Element rootElement = document.getRootElement();
     for (Iterator i = rootElement.elementIterator("Body"); i.hasNext();) {
       Element element = (Element) i.next();
